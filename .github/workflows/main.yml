@@ -1,0 +1,63 @@
+name: Deploy To EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 저장소에서 코드 가져오기
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Maven을 설치하고 애플리케이션 빌드
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build with Maven
+        run: mvn clean package
+
+      # Docker Hub로 로그인
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: alice20240103
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      # Docker 이미지를 빌드하고 Docker Hub에 푸시
+      - name: Build and push Docker image
+        run: |
+          docker build -t alice20240103/kosta0625b:latest .
+          docker push alice20240103/kosta0625b:latest
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      # EC2에 SSH로 접속하여 Docker 컨테이너 실행
+      - name: SSH로 EC2에 접속하기
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            # Docker Hub에 로그인
+            echo "${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}" | docker login -u alice20240103 --password-stdin
+
+            # Docker 이미지 풀
+            docker pull alice20240103/kosta0625b:latest
+
+            # 기존 컨테이너 중지 및 제거
+            docker stop kosta0625b || true
+            docker rm kosta0625b || true
+
+            # 새로운 컨테이너 실행
+            docker run -d -p 8080:8080 --name kosta0625b alice20240103/kosta0625b:latest
